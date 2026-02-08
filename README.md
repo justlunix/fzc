@@ -124,7 +124,7 @@ options = "--working-directory ."    # optional, string or array
 ## Search and Filters
 
 - Type to search commands.
-- `/` run internal command
+- `/command` run internal command
 - `!alias query` filter by provider alias
 - `!provider query` filter by provider name (if no alias exists)
 
@@ -132,7 +132,6 @@ Internal commands:
 
 - `/reload`: reload config and providers
 - `/init`: write starter config and reload
-- `/init --force`: overwrite existing starter config
 
 ## Keybindings
 
