@@ -47,12 +47,17 @@ usage_weight = 8000
 # Load commands from this file
 [providers.config]
 enabled = true
-alias = "c"
+alias = "cf"
 
 # Auto-load Laravel artisan commands when inside a Laravel project
 [providers.artisan]
 enabled = false
 alias = "a"
+
+# Auto-load composer commands + scripts when composer.json is present
+[providers.composer]
+enabled = false
+alias = "co"
 
 # Auto-load just recipes from a justfile
 # parameters are currently unsupported
@@ -71,7 +76,8 @@ alias = "j"
 name = "Run tests"                                     # required
 run = "php artisan test --filter={{filter}} {{force}}" # required
 description = "Run Laravel tests"                      # optional
-scopes = ["laravel"]                                   # optional (currently only "laravel" is supported)
+scopes = ["laravel"]                                   # optional
+# scopes = ["composer"]                                # also supported
 working_dir = "."                                      # optional
 
 # Params are attached to the previous [[commands]] entry
@@ -119,6 +125,14 @@ alias = "j"                          # optional
 path = "justfile"                    # default: justfile
 options = "--working-directory ."    # optional, string or array
 # options = ["--working-directory .", "--unstable"]
+```
+
+### Composer Provider
+
+```toml
+[providers.composer]
+enabled = false  # auto-load composer commands + scripts when composer.json exists
+alias = "co"     # optional
 ```
 
 ## Search and Filters

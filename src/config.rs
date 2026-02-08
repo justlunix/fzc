@@ -43,6 +43,8 @@ pub struct ProvidersConfig {
     pub config: ConfigProviderConfig,
     #[serde(default, deserialize_with = "deserialize_artisan_provider")]
     pub artisan: ArtisanProviderConfig,
+    #[serde(default, deserialize_with = "deserialize_composer_provider")]
+    pub composer: ComposerProviderConfig,
     #[serde(default, deserialize_with = "deserialize_justfile_provider")]
     pub justfile: JustfileProviderConfig,
 }
@@ -52,6 +54,7 @@ impl Default for ProvidersConfig {
         Self {
             config: ConfigProviderConfig::default(),
             artisan: ArtisanProviderConfig::default(),
+            composer: ComposerProviderConfig::default(),
             justfile: JustfileProviderConfig::default(),
         }
     }
@@ -100,6 +103,23 @@ pub struct ArtisanProviderConfig {
 }
 
 impl Default for ArtisanProviderConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            alias: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ComposerProviderConfig {
+    #[serde(default = "default_false")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub alias: Option<String>,
+}
+
+impl Default for ComposerProviderConfig {
     fn default() -> Self {
         Self {
             enabled: false,
@@ -177,6 +197,22 @@ where
     })
 }
 
+fn deserialize_composer_provider<'de, D>(
+    deserializer: D,
+) -> std::result::Result<ComposerProviderConfig, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let input = ProviderBoolOrTable::<ComposerProviderConfig>::deserialize(deserializer)?;
+    Ok(match input {
+        ProviderBoolOrTable::Bool(enabled) => ComposerProviderConfig {
+            enabled,
+            ..ComposerProviderConfig::default()
+        },
+        ProviderBoolOrTable::Table(config) => config,
+    })
+}
+
 fn deserialize_justfile_provider<'de, D>(
     deserializer: D,
 ) -> std::result::Result<JustfileProviderConfig, D::Error>
@@ -198,6 +234,7 @@ impl ProvidersConfig {
         let mut aliases = HashMap::new();
         insert_alias(&mut aliases, "config", self.config.alias.as_deref())?;
         insert_alias(&mut aliases, "artisan", self.artisan.alias.as_deref())?;
+        insert_alias(&mut aliases, "composer", self.composer.alias.as_deref())?;
         insert_alias(&mut aliases, "justfile", self.justfile.alias.as_deref())?;
         Ok(aliases)
     }
@@ -253,9 +290,13 @@ mod tests {
 enabled = true
 alias = "a"
 
+[providers.composer]
+enabled = true
+alias = "co"
+
 [providers.config]
 enabled = true
-alias = "c"
+alias = "cf"
 
 [providers.justfile]
 enabled = true
@@ -266,6 +307,7 @@ alias = "j"
         let cfg: Config = toml::from_str(raw).unwrap();
         assert!(cfg.providers.config.enabled);
         assert!(cfg.providers.artisan.enabled);
+        assert!(cfg.providers.composer.enabled);
         assert!(cfg.providers.justfile.enabled);
         assert_eq!(cfg.providers.justfile.path, ".justfile");
         assert_eq!(
@@ -273,6 +315,7 @@ alias = "j"
             vec!["--working-directory .".to_string()]
         );
         assert_eq!(cfg.providers.artisan.alias.as_deref(), Some("a"));
+        assert_eq!(cfg.providers.composer.alias.as_deref(), Some("p"));
         assert_eq!(cfg.providers.config.alias.as_deref(), Some("c"));
         assert_eq!(cfg.providers.justfile.alias.as_deref(), Some("j"));
         assert!(cfg.ranking.usage_enabled);
@@ -284,11 +327,13 @@ alias = "j"
 [providers]
 config = false
 artisan = true
+composer = true
 justfile = false
 "#;
         let cfg: Config = toml::from_str(raw).unwrap();
         assert!(!cfg.providers.config.enabled);
         assert!(cfg.providers.artisan.enabled);
+        assert!(cfg.providers.composer.enabled);
         assert!(!cfg.providers.justfile.enabled);
         assert_eq!(cfg.providers.justfile.path, "justfile");
         assert!(cfg.providers.justfile.options.is_empty());
@@ -304,6 +349,7 @@ run = "echo foo"
         let cfg: Config = toml::from_str(raw).unwrap();
         assert!(!cfg.providers.config.enabled);
         assert!(!cfg.providers.artisan.enabled);
+        assert!(!cfg.providers.composer.enabled);
         assert!(!cfg.providers.justfile.enabled);
     }
 
@@ -326,9 +372,13 @@ usage_weight = 123
 enabled = true
 alias = "x"
 
-[providers.justfile]
+[providers.composer]
 enabled = true
 alias = "x"
+
+[providers.justfile]
+enabled = true
+alias = "j"
 "#;
         let cfg: Config = toml::from_str(raw).unwrap();
         let err = cfg.providers.alias_map().unwrap_err().to_string();
@@ -479,12 +529,17 @@ usage_weight = 8000
 # Load commands from this file (`[[commands]]` blocks)
 [providers.config]
 enabled = true
-alias = "c"
+alias = "cf"
 
 # Auto-load Laravel artisan commands when inside a Laravel project.
 [providers.artisan]
 enabled = false
 alias = "a"
+
+# Auto-load composer commands and scripts when composer.json is present.
+[providers.composer]
+enabled = false
+alias = "co"
 
 # Auto-load just recipes from a justfile.
 [providers.justfile]

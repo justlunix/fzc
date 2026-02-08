@@ -1,10 +1,13 @@
 use std::collections::{BTreeSet, HashMap};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::Result;
 
-use crate::config::{ArtisanProviderConfig, JustfileProviderConfig, ProvidersConfig};
+use crate::config::{
+    ArtisanProviderConfig, ComposerProviderConfig, JustfileProviderConfig, ProvidersConfig,
+};
 use crate::model::{CommandEntry, CommandSource};
 
 pub fn load_provider_commands(config: &ProvidersConfig, cwd: &Path) -> Result<Vec<CommandEntry>> {
@@ -12,6 +15,9 @@ pub fn load_provider_commands(config: &ProvidersConfig, cwd: &Path) -> Result<Ve
 
     if config.artisan.enabled {
         commands.extend(load_artisan_provider(cwd, &config.artisan)?);
+    }
+    if config.composer.enabled {
+        commands.extend(load_composer_provider(cwd, &config.composer)?);
     }
     if config.justfile.enabled {
         commands.extend(load_justfile_provider(cwd, &config.justfile)?);
@@ -75,6 +81,53 @@ fn load_justfile_provider(
     Ok(commands)
 }
 
+fn load_composer_provider(
+    cwd: &Path,
+    _config: &ComposerProviderConfig,
+) -> Result<Vec<CommandEntry>> {
+    let Some(root) = detect_composer_root(cwd) else {
+        return Ok(Vec::new());
+    };
+
+    let mut commands = Vec::new();
+
+    for (name, description) in basic_composer_commands() {
+        commands.push(CommandEntry {
+            name: format!("composer {name}"),
+            description: Some(description.to_string()),
+            template: format!("composer {name}"),
+            params: Vec::new(),
+            source: CommandSource::Provider("composer"),
+            working_dir: Some(root.clone()),
+        });
+    }
+
+    for script in composer_scripts(&root) {
+        commands.push(CommandEntry {
+            name: format!("composer script:{script}"),
+            description: Some("composer script".to_string()),
+            template: format!("composer run-script {script}"),
+            params: Vec::new(),
+            source: CommandSource::Provider("composer"),
+            working_dir: Some(root.clone()),
+        });
+    }
+
+    Ok(commands)
+}
+
+fn basic_composer_commands() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("install", "Install project dependencies"),
+        ("update", "Update dependencies"),
+        ("dump-autoload", "Regenerate autoloader files"),
+        ("validate", "Validate composer.json and composer.lock"),
+        ("show", "List installed packages"),
+        ("outdated", "Show outdated dependencies"),
+        ("audit", "Run security audit on dependencies"),
+    ]
+}
+
 fn detect_laravel_root(start: &Path) -> Option<PathBuf> {
     for dir in start.ancestors() {
         if dir.join("artisan").is_file() {
@@ -82,6 +135,45 @@ fn detect_laravel_root(start: &Path) -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn detect_composer_root(start: &Path) -> Option<PathBuf> {
+    for dir in start.ancestors() {
+        if dir.join("composer.json").is_file() {
+            return Some(dir.to_path_buf());
+        }
+    }
+    None
+}
+
+fn composer_scripts(root: &Path) -> Vec<String> {
+    let path = root.join("composer.json");
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(_) => return Vec::new(),
+    };
+    parse_composer_scripts_json(&content)
+}
+
+fn parse_composer_scripts_json(raw: &str) -> Vec<String> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return Vec::new();
+    };
+
+    let mut scripts = BTreeSet::new();
+    let Some(map) = value.get("scripts").and_then(|value| value.as_object()) else {
+        return Vec::new();
+    };
+
+    for key in map.keys() {
+        let name = key.trim();
+        if name.is_empty() || name.starts_with('_') {
+            continue;
+        }
+        scripts.insert(name.to_string());
+    }
+
+    scripts.into_iter().collect()
 }
 
 fn artisan_list_raw(root: &Path) -> Option<String> {
@@ -329,10 +421,12 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use crate::config::ComposerProviderConfig;
+
     use super::{
         build_just_command_template, expand_home_shorthand, parse_artisan_commands,
-        parse_artisan_descriptions_json, parse_just_recipes, resolve_provider_path,
-        shell_escape_arg, tokenize_provider_options,
+        parse_artisan_descriptions_json, parse_composer_scripts_json, parse_just_recipes,
+        resolve_provider_path, shell_escape_arg, tokenize_provider_options,
     };
 
     #[test]
@@ -428,6 +522,55 @@ mod tests {
         assert_eq!(shell_escape_arg("."), ".");
         assert_eq!(shell_escape_arg("modx::task"), "modx::task");
         assert_eq!(shell_escape_arg("path with space"), "'path with space'");
+    }
+
+    #[test]
+    fn parses_composer_scripts_from_json() {
+        let raw = r#"{
+  "scripts": {
+    "test": "phpunit",
+    "qa": ["phpstan", "phpunit"],
+    "_private": "echo hidden"
+  }
+}"#;
+        let scripts = parse_composer_scripts_json(raw);
+        assert_eq!(scripts, vec!["qa".to_string(), "test".to_string()]);
+    }
+
+    #[test]
+    fn loads_composer_basic_and_script_commands() {
+        let root = make_temp_dir();
+        let nested = root.join("deep/nested");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(
+            root.join("composer.json"),
+            r#"{"scripts":{"test":"phpunit","qa":"phpstan"}}"#,
+        )
+        .unwrap();
+
+        let config = ComposerProviderConfig {
+            enabled: true,
+            alias: Some("p".to_string()),
+        };
+        let commands = super::load_composer_provider(&nested, &config).unwrap();
+
+        assert!(
+            commands
+                .iter()
+                .any(|command| command.name == "composer install")
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|command| command.name == "composer script:test")
+        );
+        assert!(
+            commands
+                .iter()
+                .all(|command| command.working_dir.as_ref() == Some(&root))
+        );
+
+        let _ = fs::remove_dir_all(root);
     }
 
     fn make_temp_dir() -> PathBuf {

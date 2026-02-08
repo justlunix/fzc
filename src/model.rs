@@ -191,10 +191,11 @@ fn matches_scope(patterns: &[String], cwd: &Path) -> Result<bool> {
     }
 
     let laravel_root = detect_laravel_root(cwd);
-    let candidates = scope_match_candidates(cwd, laravel_root.as_deref());
+    let composer_root = detect_composer_root(cwd);
+    let candidates = scope_match_candidates(cwd, laravel_root.as_deref(), composer_root.as_deref());
 
     for pattern in patterns {
-        if matches_special_scope(pattern, laravel_root.as_deref()) {
+        if matches_special_scope(pattern, laravel_root.as_deref(), composer_root.as_deref()) {
             return Ok(true);
         }
 
@@ -212,14 +213,23 @@ fn matches_scope(patterns: &[String], cwd: &Path) -> Result<bool> {
     Ok(false)
 }
 
-fn matches_special_scope(pattern: &str, laravel_root: Option<&Path>) -> bool {
+fn matches_special_scope(
+    pattern: &str,
+    laravel_root: Option<&Path>,
+    composer_root: Option<&Path>,
+) -> bool {
     match pattern.trim().to_ascii_lowercase().as_str() {
         "laravel" | "project:laravel" | "framework:laravel" => laravel_root.is_some(),
+        "composer" | "project:composer" | "tool:composer" => composer_root.is_some(),
         _ => false,
     }
 }
 
-fn scope_match_candidates(cwd: &Path, laravel_root: Option<&Path>) -> Vec<PathBuf> {
+fn scope_match_candidates(
+    cwd: &Path,
+    laravel_root: Option<&Path>,
+    composer_root: Option<&Path>,
+) -> Vec<PathBuf> {
     let mut candidates = vec![cwd.to_path_buf()];
     if let Some(root) = laravel_root {
         candidates.push(root.to_path_buf());
@@ -227,12 +237,25 @@ fn scope_match_candidates(cwd: &Path, laravel_root: Option<&Path>) -> Vec<PathBu
         candidates.push(root.join("app").join("__fzc_scope_marker__"));
         candidates.push(root.join("artisan"));
     }
+    if let Some(root) = composer_root {
+        candidates.push(root.to_path_buf());
+        candidates.push(root.join("composer.json"));
+    }
     candidates
 }
 
 fn detect_laravel_root(start: &Path) -> Option<PathBuf> {
     for dir in start.ancestors() {
         if dir.join("artisan").is_file() {
+            return Some(dir.to_path_buf());
+        }
+    }
+    None
+}
+
+fn detect_composer_root(start: &Path) -> Option<PathBuf> {
+    for dir in start.ancestors() {
+        if dir.join("composer.json").is_file() {
             return Some(dir.to_path_buf());
         }
     }
@@ -268,6 +291,17 @@ mod tests {
         fs::write(root.join("artisan"), "#!/usr/bin/env php").unwrap();
 
         let patterns = vec!["laravel".to_string()];
+        assert!(matches_scope(&patterns, &root).unwrap());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn composer_literal_scope_matches_when_composer_exists() {
+        let root = make_temp_dir();
+        fs::write(root.join("composer.json"), r#"{"name":"example/app"}"#).unwrap();
+
+        let patterns = vec!["composer".to_string()];
         assert!(matches_scope(&patterns, &root).unwrap());
 
         let _ = fs::remove_dir_all(root);
