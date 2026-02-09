@@ -73,12 +73,12 @@ alias = "j"
 ```toml
 # One command entry
 [[commands]]
-name = "Run tests"                                     # required
-run = "php artisan test --filter={{filter}} {{force}}" # required
-description = "Run Laravel tests"                      # optional
-scopes = ["laravel"]                                   # optional
-# scopes = ["composer"]                                # also supported
-working_dir = "."                                      # optional
+name = "Run tests"                                           # required
+run = "php artisan test --filter={{filter}} {{no-coverage}}" # required
+description = "Run Laravel tests"                            # optional
+scopes = ["laravel"]                                         # optional
+# scopes = ["composer"]                                      # also supported
+working_dir = "."                                            # optional
 
 # Params are attached to the previous [[commands]] entry
 [[commands.params]]
@@ -91,11 +91,11 @@ default = "UserTest"      # optional
 # value = "UserTest"      # optional fixed value (no prompt)
 
 [[commands.params]]
-name = "force"
+name = "no-coverage"
 type = "flag"
-prompt = "Use --force?"   # optional
-default = false           # Enter fallback (y/n also works directly)
-# value = true            # optional fixed flag value
+prompt = "Use --no-coverage?"   # optional
+default = false                 # Enter fallback (y/n also works directly)
+# value = true                  # optional fixed flag value
 ```
 
 ## Providers Reference (TOML)

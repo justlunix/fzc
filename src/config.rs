@@ -553,7 +553,7 @@ alias = "j"
 #
 # [[commands]]
 # name = "Run tests"
-# run = "php artisan test --filter={{filter}} {{force}}"
+# run = "php artisan test --filter={{filter}} {{no-coverage}}"
 # description = "Example command"
 # scopes = ["laravel"] # optional
 #
@@ -563,7 +563,7 @@ alias = "j"
 # required = true
 #
 # [[commands.params]]
-# name = "force"
+# name = "no-coverage"
 # type = "flag"
 # default = false
 "#;
