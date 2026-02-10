@@ -248,14 +248,14 @@ fn insert_alias(
     let Some(alias) = alias else {
         return Ok(());
     };
-    let normalized = alias.trim().trim_start_matches('!').to_ascii_lowercase();
+    let normalized = alias.trim().trim_start_matches(':').to_ascii_lowercase();
     if normalized.is_empty() {
         bail!("provider alias for '{provider_name}' cannot be empty");
     }
 
     if let Some(existing) = aliases.get(&normalized) {
         bail!(
-            "provider alias '!{}' is duplicated between '{}' and '{}'",
+            "provider alias ':{}' is duplicated between '{}' and '{}'",
             normalized,
             existing,
             provider_name

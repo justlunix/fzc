@@ -865,7 +865,7 @@ fn draw_help_panel(frame: &mut Frame, _app: &AppState, area: Rect) {
         Line::from("  Left/Right     Move cursor in search input"),
         Line::from("  Home/End       Jump cursor in search input"),
         Line::from("  Backspace/Del  Edit search input"),
-        Line::from("  !provider text Filter by provider"),
+        Line::from("  :provider text Filter by provider"),
         Line::from("  /              Internal commands"),
         Line::from("  ?              Toggle this help"),
         Line::from("  Esc            Clear search / quit / interrupt running command"),
@@ -1966,7 +1966,7 @@ fn parse_query_provider_filter<'a>(
     provider_names_without_alias: &'a HashSet<String>,
 ) -> (Option<&'a str>, &'a str, bool) {
     let trimmed = query.trim_start();
-    if !trimmed.starts_with('!') {
+    if !trimmed.starts_with(':') {
         return (None, query, false);
     }
 
@@ -2397,7 +2397,7 @@ mod tests {
         aliases.insert("j".to_string(), "justfile".to_string());
 
         let mut app = AppState::new(commands, None, aliases, default_ranking(), test_runtime());
-        app.query = "!a cache".to_string();
+        app.query = ":a cache".to_string();
         app.refresh_filtered();
 
         assert_eq!(app.filtered.len(), 1);
@@ -2432,7 +2432,7 @@ mod tests {
         aliases.insert("a".to_string(), "artisan".to_string());
 
         let mut app = AppState::new(commands, None, aliases, default_ranking(), test_runtime());
-        app.query = "!justfile build".to_string();
+        app.query = ":justfile build".to_string();
         app.refresh_filtered();
 
         assert_eq!(app.filtered.len(), 1);
@@ -2457,7 +2457,7 @@ mod tests {
         aliases.insert("a".to_string(), "artisan".to_string());
 
         let mut app = AppState::new(commands, None, aliases, default_ranking(), test_runtime());
-        app.query = "!artisan cache".to_string();
+        app.query = ":artisan cache".to_string();
         app.refresh_filtered();
 
         assert!(app.filtered.is_empty());

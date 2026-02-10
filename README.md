@@ -8,7 +8,7 @@ keyboard-first TUI.
 - Fuzzy-ranked command search with optional usage-based weighting
 - Session history with streamed, ANSI-colored output
 - Config-driven commands plus provider-based commands
-- Provider filtering via `!`
+- Provider filtering via `:`
 - Internal commands via `/`
 
 ## Quick Start
@@ -139,8 +139,8 @@ alias = "co"     # optional
 
 - Type to search commands.
 - `/command` run internal command
-- `!alias query` filter by provider alias
-- `!provider query` filter by provider name (if no alias exists)
+- `:alias query` filter by provider alias
+- `:provider query` filter by provider name (if no alias exists)
 
 Internal commands:
 
