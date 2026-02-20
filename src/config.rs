@@ -315,8 +315,8 @@ alias = "j"
             vec!["--working-directory .".to_string()]
         );
         assert_eq!(cfg.providers.artisan.alias.as_deref(), Some("a"));
-        assert_eq!(cfg.providers.composer.alias.as_deref(), Some("p"));
-        assert_eq!(cfg.providers.config.alias.as_deref(), Some("c"));
+        assert_eq!(cfg.providers.composer.alias.as_deref(), Some("co"));
+        assert_eq!(cfg.providers.config.alias.as_deref(), Some("cf"));
         assert_eq!(cfg.providers.justfile.alias.as_deref(), Some("j"));
         assert!(cfg.ranking.usage_enabled);
     }
