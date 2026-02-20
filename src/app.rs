@@ -518,16 +518,26 @@ fn draw_ui(frame: &mut Frame, app: &AppState) {
 }
 
 fn draw_chat_panel(frame: &mut Frame, app: &AppState, area: Rect) {
+    let content_width = area.width.saturating_sub(2).max(1) as usize;
+    let mut rendered_lines: Vec<Line<'static>> = Vec::new();
+    for entry in &app.chat {
+        rendered_lines.extend(wrap_chat_line(render_chat_line(entry), content_width));
+    }
+
     let max_lines = area.height.saturating_sub(2) as usize;
     let visible = max_lines.max(1);
-    let max_offset = app.chat.len().saturating_sub(visible);
+    let max_offset = rendered_lines.len().saturating_sub(visible);
     let offset = app.session_scroll.min(max_offset);
-    let start = app
-        .chat
+    let start = rendered_lines
         .len()
         .saturating_sub(visible.saturating_add(offset));
 
-    let items: Vec<ListItem<'_>> = app.chat.iter().skip(start).map(render_chat_line).collect();
+    let items: Vec<ListItem<'_>> = rendered_lines
+        .into_iter()
+        .skip(start)
+        .take(visible)
+        .map(ListItem::new)
+        .collect();
 
     let border_color = if app.active_pane == ActivePane::Session {
         Color::Rgb(88, 150, 201)
@@ -549,30 +559,30 @@ fn draw_chat_panel(frame: &mut Frame, app: &AppState, area: Rect) {
     frame.render_widget(list, area);
 }
 
-fn render_chat_line(entry: &ChatLine) -> ListItem<'static> {
+fn render_chat_line(entry: &ChatLine) -> Line<'static> {
     match entry.kind {
         ChatLineKind::Info => {
             let style = Style::default().fg(Color::Gray);
-            ListItem::new(Line::from(vec![
+            Line::from(vec![
                 Span::styled("• ".to_string(), style),
                 Span::styled(entry.text.clone(), style),
-            ]))
+            ])
         }
         ChatLineKind::Command => {
             let style = Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD);
-            ListItem::new(Line::from(vec![
+            Line::from(vec![
                 Span::styled("$ ".to_string(), style),
                 Span::styled(entry.text.clone(), style),
-            ]))
+            ])
         }
         ChatLineKind::Stdout => {
             let prefix_style = Style::default().fg(Color::DarkGray);
             let default_style = Style::default().fg(Color::White);
             let mut spans = vec![Span::styled("  ".to_string(), prefix_style)];
             spans.extend(parse_ansi_spans(&entry.text, default_style, Color::White));
-            ListItem::new(Line::from(spans))
+            Line::from(spans)
         }
         ChatLineKind::Stderr => {
             let prefix_style = Style::default().fg(Color::DarkGray);
@@ -583,8 +593,67 @@ fn render_chat_line(entry: &ChatLine) -> ListItem<'static> {
                 default_style,
                 Color::LightRed,
             ));
-            ListItem::new(Line::from(spans))
+            Line::from(spans)
         }
+    }
+}
+
+fn wrap_chat_line(line: Line<'static>, width: usize) -> Vec<Line<'static>> {
+    if width == 0 {
+        return vec![line];
+    }
+
+    let mut wrapped = Vec::new();
+    let mut current_spans: Vec<Span<'static>> = Vec::new();
+    let mut current_width = 0usize;
+
+    for span in line.spans {
+        let style = span.style;
+        let content = span.content.into_owned();
+        if content.is_empty() {
+            continue;
+        }
+
+        let mut segment = String::new();
+        for ch in content.chars() {
+            let ch_width = char_display_width(ch);
+            if current_width + ch_width > width && current_width > 0 {
+                if !segment.is_empty() {
+                    current_spans.push(Span::styled(std::mem::take(&mut segment), style));
+                }
+                wrapped.push(Line::from(std::mem::take(&mut current_spans)));
+                current_width = 0;
+            }
+
+            segment.push(ch);
+            current_width += ch_width;
+
+            if current_width >= width {
+                if !segment.is_empty() {
+                    current_spans.push(Span::styled(std::mem::take(&mut segment), style));
+                }
+                wrapped.push(Line::from(std::mem::take(&mut current_spans)));
+                current_width = 0;
+            }
+        }
+
+        if !segment.is_empty() {
+            current_spans.push(Span::styled(segment, style));
+        }
+    }
+
+    if !current_spans.is_empty() || wrapped.is_empty() {
+        wrapped.push(Line::from(current_spans));
+    }
+
+    wrapped
+}
+
+fn char_display_width(ch: char) -> usize {
+    match ch {
+        '\t' => 4,
+        _ if ch.is_control() => 0,
+        _ => 1,
     }
 }
 
@@ -1916,10 +1985,7 @@ impl AppState {
 
     fn scroll_session(&mut self, delta: isize) {
         if delta > 0 {
-            self.session_scroll = self
-                .session_scroll
-                .saturating_add(delta as usize)
-                .min(self.chat.len().saturating_sub(1));
+            self.session_scroll = self.session_scroll.saturating_add(delta as usize);
         } else if delta < 0 {
             self.session_scroll = self.session_scroll.saturating_sub((-delta) as usize);
         }
@@ -2306,6 +2372,20 @@ mod tests {
             panic!("expected command result");
         };
         app.commands[index].name.clone()
+    }
+
+    fn line_to_plain(line: &Line<'_>) -> String {
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>()
+    }
+
+    #[test]
+    fn wraps_chat_lines_to_available_width() {
+        let wrapped = wrap_chat_line(Line::from("1234567890"), 4);
+        let plain: Vec<String> = wrapped.iter().map(line_to_plain).collect();
+        assert_eq!(plain, vec!["1234", "5678", "90"]);
     }
 
     #[test]
