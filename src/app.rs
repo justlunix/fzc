@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use crossterm::cursor;
@@ -188,8 +188,14 @@ fn execute_command(
             } else {
                 app.push_info(format!("exit code: {}", result.exit_code));
             }
+            app.push_info(format!("exited after {}", format_duration(result.elapsed)));
         }
-        Err(err) => app.push_error(format!("execution failed: {err:#}")),
+        Err(err) => {
+            app.push_error(format!("execution failed: {err:#}"));
+            if let Some(elapsed) = app.loading_elapsed() {
+                app.push_info(format!("exited after {}", format_duration(elapsed)));
+            }
+        }
     }
     app.stop_loading();
     app.record_usage(&request.usage_key);
@@ -342,6 +348,8 @@ fn run_shell_command_streaming(
     command: &str,
     working_dir: Option<&Path>,
 ) -> Result<StreamRunResult> {
+    let started_at = Instant::now();
+
     #[cfg(target_os = "windows")]
     let mut process = {
         let mut cmd = Command::new("cmd");
@@ -397,6 +405,7 @@ fn run_shell_command_streaming(
             return Ok(StreamRunResult {
                 exit_code: 130,
                 interrupted: true,
+                elapsed: started_at.elapsed(),
             });
         }
 
@@ -416,6 +425,7 @@ fn run_shell_command_streaming(
             return Ok(StreamRunResult {
                 exit_code: status.code().unwrap_or_default(),
                 interrupted: false,
+                elapsed: started_at.elapsed(),
             });
         }
 
@@ -781,6 +791,24 @@ fn map_ansi_color(code: u16) -> Color {
     }
 }
 
+fn format_duration(duration: Duration) -> String {
+    let total_seconds = duration.as_secs_f64();
+    if total_seconds < 60.0 {
+        return format!("{total_seconds:.1}s");
+    }
+
+    if total_seconds < 3600.0 {
+        let minutes = (total_seconds / 60.0).floor() as u64;
+        let seconds = total_seconds - (minutes as f64 * 60.0);
+        return format!("{minutes}m {seconds:04.1}s");
+    }
+
+    let hours = (total_seconds / 3600.0).floor() as u64;
+    let minutes = ((total_seconds % 3600.0) / 60.0).floor() as u64;
+    let seconds = total_seconds % 60.0;
+    format!("{hours}h {minutes:02}m {seconds:04.1}s")
+}
+
 fn draw_commands_panel(frame: &mut Frame, app: &AppState, area: Rect) {
     let total = if app.is_internal_query() {
         app.internal_commands.len()
@@ -889,8 +917,9 @@ fn draw_commands_panel(frame: &mut Frame, app: &AppState, area: Rect) {
 fn draw_search_bar(frame: &mut Frame, app: &AppState, area: Rect) {
     let search_text = if app.is_loading {
         let label = app.loading_label.as_deref().unwrap_or("command");
+        let elapsed = format_duration(app.loading_elapsed().unwrap_or_default());
         format!(
-            "Search: {} Running {} (Esc to interrupt)",
+            "Search: {} Running {} ({elapsed}) (Esc to interrupt)",
             app.spinner_frame(),
             label
         )
@@ -1091,6 +1120,7 @@ enum CommandExec {
 struct StreamRunResult {
     exit_code: i32,
     interrupted: bool,
+    elapsed: Duration,
 }
 
 struct RunRequest {
@@ -1200,6 +1230,7 @@ struct AppState {
     usage_path: Option<PathBuf>,
     is_loading: bool,
     loading_label: Option<String>,
+    loading_started_at: Option<Instant>,
     spinner_index: usize,
     show_help: bool,
     runtime: RuntimeContext,
@@ -1256,6 +1287,7 @@ impl AppState {
             usage_path,
             is_loading: false,
             loading_label: None,
+            loading_started_at: None,
             spinner_index: 0,
             show_help: false,
             runtime,
@@ -1791,12 +1823,14 @@ impl AppState {
     fn start_loading(&mut self, label: &str) {
         self.is_loading = true;
         self.loading_label = Some(label.to_string());
+        self.loading_started_at = Some(Instant::now());
         self.spinner_index = 0;
     }
 
     fn stop_loading(&mut self) {
         self.is_loading = false;
         self.loading_label = None;
+        self.loading_started_at = None;
     }
 
     fn tick_loading(&mut self) {
@@ -1807,6 +1841,11 @@ impl AppState {
 
     fn spinner_frame(&self) -> &'static str {
         SPINNER_FRAMES[self.spinner_index % SPINNER_FRAMES.len()]
+    }
+
+    fn loading_elapsed(&self) -> Option<Duration> {
+        self.loading_started_at
+            .map(|started_at| started_at.elapsed())
     }
 
     fn record_usage(&mut self, key: &str) {
@@ -2326,6 +2365,7 @@ fn terms_contiguous(name_terms: &[String], query_terms: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::time::Duration;
 
     use super::*;
     use crate::model::CommandSource;
@@ -2385,6 +2425,16 @@ mod tests {
         let wrapped = wrap_chat_line(Line::from("1234567890"), 4);
         let plain: Vec<String> = wrapped.iter().map(line_to_plain).collect();
         assert_eq!(plain, vec!["1234", "5678", "90"]);
+    }
+
+    #[test]
+    fn formats_short_duration() {
+        assert_eq!(format_duration(Duration::from_millis(1250)), "1.2s");
+    }
+
+    #[test]
+    fn formats_minute_duration() {
+        assert_eq!(format_duration(Duration::from_millis(61_250)), "1m 01.2s");
     }
 
     #[test]
