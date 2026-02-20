@@ -518,13 +518,29 @@ fn draw_ui(frame: &mut Frame, app: &AppState) {
 }
 
 fn draw_chat_panel(frame: &mut Frame, app: &AppState, area: Rect) {
-    let content_width = area.width.saturating_sub(2).max(1) as usize;
+    let border_color = if app.active_pane == ActivePane::Session {
+        Color::Rgb(88, 150, 201)
+    } else {
+        Color::Rgb(70, 84, 96)
+    };
+    let block = Block::default()
+        .borders(Borders::TOP)
+        .title(if app.active_pane == ActivePane::Session {
+            "Session [active]"
+        } else {
+            "Session"
+        })
+        .border_style(Style::default().fg(border_color));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let content_width = inner.width.max(1) as usize;
     let mut rendered_lines: Vec<Line<'static>> = Vec::new();
     for entry in &app.chat {
         rendered_lines.extend(wrap_chat_line(render_chat_line(entry), content_width));
     }
 
-    let max_lines = area.height.saturating_sub(2) as usize;
+    let max_lines = inner.height as usize;
     let visible = max_lines.max(1);
     let max_offset = rendered_lines.len().saturating_sub(visible);
     let offset = app.session_scroll.min(max_offset);
@@ -538,25 +554,8 @@ fn draw_chat_panel(frame: &mut Frame, app: &AppState, area: Rect) {
         .take(visible)
         .map(ListItem::new)
         .collect();
-
-    let border_color = if app.active_pane == ActivePane::Session {
-        Color::Rgb(88, 150, 201)
-    } else {
-        Color::Rgb(70, 84, 96)
-    };
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(if app.active_pane == ActivePane::Session {
-                "Session [active]"
-            } else {
-                "Session"
-            })
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(border_color)),
-    );
-
-    frame.render_widget(list, area);
+    let list = List::new(items);
+    frame.render_widget(list, inner);
 }
 
 fn render_chat_line(entry: &ChatLine) -> Line<'static> {
